@@ -1,7 +1,9 @@
 import { getToken } from './authService';
 import createApiClient from './httpClient';
+import { API_ORIGIN } from '../config/api';
 
-const API_BASE_URL = 'https://corimetal.scarerror.com/api/rfq';
+// Was hardcoded to the production domain; now dev uses the Vite proxy to the local backend.
+const API_BASE_URL = `${API_ORIGIN}/api/rfq`;
 
 const api = createApiClient();
 

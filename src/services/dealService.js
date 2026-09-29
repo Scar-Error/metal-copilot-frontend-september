@@ -1,11 +1,15 @@
 import { getToken } from './authService';
 import createApiClient from './httpClient';
+import { API_ORIGIN } from '../config/api';
 
-const API_BASE = 'https://corimetal.scarerror.com/api/rfq/deals';
-const API_THREADS = 'https://corimetal.scarerror.com/api/rfq/email-threads';
-const API_PULL = 'https://corimetal.scarerror.com/api/rfq/monitor/emails/pull/';
-const API_TASK = 'https://corimetal.scarerror.com/api/rfq/monitor/task';
-const API_ATTACHMENTS = 'https://corimetal.scarerror.com/api/rfq/deals';
+// These five were hardcoded to the production domain, so every deal/thread call bypassed
+// the local backend in development. Now they resolve through the Vite proxy in dev and
+// through the production origin in a `npm run build` bundle.
+const API_BASE = `${API_ORIGIN}/api/rfq/deals`;
+const API_THREADS = `${API_ORIGIN}/api/rfq/email-threads`;
+const API_PULL = `${API_ORIGIN}/api/rfq/monitor/emails/pull/`;
+const API_TASK = `${API_ORIGIN}/api/rfq/monitor/task`;
+const API_ATTACHMENTS = `${API_ORIGIN}/api/rfq/deals`;
 
 const api = createApiClient();
 
@@ -67,8 +71,30 @@ const dealService = {
     return res.data;
   },
 
+  // Kanban board load: returns threads WITHOUT message bodies (light payload).
   getEmailThreads: async (params = {}) => {
     const res = await api.get(API_THREADS, { ...getHeaders(), params });
+    return res.data;
+  },
+
+  // Fired when the user clicks "View Deal". This is the only request that pulls the
+  // thread's message data, so the heavy email bodies are not sent on page load.
+  getEmailThread: async (threadId) => {
+    const res = await api.get(`${API_THREADS}/${threadId}/`, getHeaders());
+    return res.data;
+  },
+
+  // Single-thread delete. Note: this also deletes the thread's messages on the
+  // server (CASCADE), so it cannot be undone.
+  deleteEmailThread: async (threadId) => {
+    const res = await api.delete(`${API_THREADS}/${threadId}/`, getHeaders());
+    return res.data;
+  },
+
+  // Bulk delete for the pipeline's multi-select mode. The route uses an underscore
+  // because DRF derives the url_path from the viewset method name.
+  bulkDeleteEmailThreads: async (ids) => {
+    const res = await api.post(`${API_THREADS}/bulk_delete/`, { ids }, getHeaders());
     return res.data;
   },
 

@@ -1,7 +1,9 @@
 import { getToken } from './authService';
 import createApiClient from './httpClient';
+import { API_ORIGIN } from '../config/api';
 
-const API_BASE = 'https://corimetal.scarerror.com/api/activity';
+// Was hardcoded to the production domain; now dev uses the Vite proxy to the local backend.
+const API_BASE = `${API_ORIGIN}/api/activity`;
 
 const api = createApiClient();
 

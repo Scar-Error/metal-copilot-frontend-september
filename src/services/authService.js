@@ -3,8 +3,11 @@
  * Handles all API calls related to authentication
  */
 import createApiClient from './httpClient';
+import { API_ORIGIN } from '../config/api';
 
-const API_BASE_URL = 'https://corimetal.scarerror.com/api/auth';
+// Was hardcoded to the production domain, so login always hit the remote server.
+// Now relative in dev (routed to local Django via the Vite proxy) and absolute in prod builds.
+const API_BASE_URL = `${API_ORIGIN}/api/auth`;
 
 const api = createApiClient(API_BASE_URL);
 

@@ -11,6 +11,7 @@ import {
   Clock,
   Download,
   Plus,
+  Trash2,
 } from 'lucide-react';
 import dealService from '../../services/dealService';
 import PageHeader from '../../components/PageHeader';
@@ -51,13 +52,26 @@ const getTagLabel = (thread) => {
   return 'Thread';
 };
 
-const EmailThreadCard = ({ thread, index, onViewDeal }) => {
-  const latestMessage = thread.messages?.[thread.messages.length - 1];
+// The per-card delete button was removed from the board: with ~160 cards rendered
+// at once it added a control to every card that most users never touch, and it
+// crowded the card header. Deleting a single thread is now done from inside the
+// thread's own detail view (ConversationDialog), next to "Save Changes", so the
+// board stays clean. Bulk delete on the board is unchanged.
+const EmailThreadCard = ({ thread, index, onViewDeal, selectionMode, selected, onToggleSelect }) => {
   const tagStyle = getTagStyle(thread);
   const tagLabel = getTagLabel(thread);
+  // The list payload no longer includes `messages` (that is fetched on "View Deal"),
+  // so the card reads the latest sender from the lightweight fields the API annotates.
+  const sender = thread.last_sender_name || thread.last_sender_email;
 
   return (
-    <Draggable draggableId={`thread-${thread.id}`} index={index}>
+    <Draggable
+      draggableId={`thread-${thread.id}`}
+      index={index}
+      // While selecting for bulk delete, disable dragging so a click meant to tick
+      // a checkbox can never accidentally move the card to another stage.
+      isDragDisabled={selectionMode}
+    >
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
@@ -65,21 +79,42 @@ const EmailThreadCard = ({ thread, index, onViewDeal }) => {
           {...provided.dragHandleProps}
           className={`bg-white dark:bg-navy rounded-xl p-4 mb-3 border border-border-light dark:border-white/10 border-l-4 ${tagStyle.leftBorder} shadow-card transition-all duration-200 ${
             snapshot.isDragging ? 'kanban-card-dragging shadow-gold' : 'hover:shadow-gold card-hover'
-          }`}
+          } ${selected ? 'ring-2 ring-gold' : ''}`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase tracking-wider border ${tagStyle.bg} ${tagStyle.text} ${tagStyle.border}`}>
-              {thread.is_manual ? <FileText size={9} className="mr-1" /> : <Mail size={9} className="mr-1" />}
-              {tagLabel}
-            </span>
-            <span className="text-[10px] font-mono text-slate-400 dark:text-white/60 flex items-center gap-1">
-              <MessageSquare size={9} />
-              {thread.message_count}
-            </span>
+            {selectionMode ? (
+              // Selection mode replaces the tag badge with a checkbox so the user can
+              // tick threads to include in the bulk delete.
+              <label
+                className="flex items-center gap-2 cursor-pointer select-none"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => onToggleSelect(thread.id)}
+                  className="w-4 h-4 rounded border-border-light dark:border-white/20 text-gold focus:ring-2 focus:ring-gold/40"
+                />
+                <span className="text-[9px] font-mono font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60">
+                  Select
+                </span>
+              </label>
+            ) : (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase tracking-wider border ${tagStyle.bg} ${tagStyle.text} ${tagStyle.border}`}>
+                {thread.is_manual ? <FileText size={9} className="mr-1" /> : <Mail size={9} className="mr-1" />}
+                {tagLabel}
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-slate-400 dark:text-white/60 flex items-center gap-1">
+                <MessageSquare size={9} />
+                {thread.message_count}
+              </span>
+            </div>
           </div>
           <h4 className="text-sm font-semibold text-slate-700 dark:text-white mb-2 truncate">{thread.subject || '(no subject)'}</h4>
           <div className="space-y-1 text-[11px] text-slate-400 dark:text-white/60">
-            {latestMessage?.sender_email && <p>{latestMessage.sender_name || latestMessage.sender_email}</p>}
+            {sender && <p>{sender}</p>}
             {thread.last_message_at && (
               <span className="flex items-center gap-1">
                 <Clock size={10} />
@@ -325,7 +360,53 @@ const EmailBody = ({ html }) => {
   );
 };
 
-const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSaveDeal, onSaveThread }) => {
+const ConfirmDeleteModal = ({ isOpen, count, isBulk, onConfirm, onCancel, deleting }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 scrim backdrop-blur-sm animate-fadeIn" onClick={onCancel} />
+      <div className="relative bg-white dark:bg-navy rounded-xl shadow-elevated border border-border-light dark:border-white/10 w-full max-w-md p-6 animate-scaleIn">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-danger/10 flex items-center justify-center">
+            <Trash2 size={20} className="text-danger" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-700 dark:text-white">
+              {isBulk ? `Delete ${count} thread${count === 1 ? '' : 's'}?` : 'Delete this thread?'}
+            </h2>
+            <p className="text-xs text-slate-400 dark:text-white/60">This cannot be undone</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-500 dark:text-white/70 mb-6">
+          {isBulk
+            ? `The selected ${count} thread${count === 1 ? '' : 's'} and all of their email messages will be permanently deleted.`
+            : 'This thread and all of its email messages will be permanently deleted.'}
+        </p>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 py-2.5 px-4 bg-danger text-white font-semibold rounded-lg text-sm hover:opacity-90 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            Delete
+          </button>
+          <button
+            onClick={onCancel}
+            className="py-2.5 px-4 rounded-lg border border-border-light dark:border-white/20 text-slate-400 dark:text-white/60 hover:text-slate-700 dark:hover:text-white text-sm transition-all duration-200"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSaveDeal, onSaveThread, onDeleteThread, messagesLoading }) => {
   const [dealForm, setDealForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [expandedMessages, setExpandedMessages] = useState(new Set());
@@ -424,10 +505,21 @@ const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSave
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
           <div className="flex-1 overflow-y-auto p-6 space-y-4 border-r border-border-light dark:border-white/10">
-            {conversation.length > 0 ? (
+            {messagesLoading ? (
+              // Messages are fetched only after "View Deal" is clicked, so show a
+              // loader here instead of briefly flashing "No messages in this thread".
+              <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-400 dark:text-white/60">
+                <Loader2 size={28} className="animate-spin text-gold" />
+                <p className="text-sm font-mono text-[10px] uppercase tracking-widest">Loading messages...</p>
+              </div>
+            ) : conversation.length > 0 ? (
               conversation.map((msg, idx) => {
                 const isLast = idx === conversation.length - 1;
                 const isExpanded = expandedMessages.has(msg.id) || (expandedMessages.size === 0 && isLast);
+                // Each message carries its own category from the AI analysis,
+                // which is independent of the thread tag in the header above.
+                // Untagged messages (never analyzed) show nothing here.
+                const msgTagStyle = msg.category ? (tagStyles[msg.category] || tagStyles.other) : null;
                 return (
                 <div key={msg.id} className="border border-border-light dark:border-white/10 rounded-lg overflow-hidden">
                   <button
@@ -447,7 +539,17 @@ const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSave
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-700 dark:text-white">{msg.sender_name || msg.sender_email}</p>
-                        <p className="text-[10px] text-slate-400 dark:text-white/60">{msg.subject}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-[10px] text-slate-400 dark:text-white/60">{msg.subject}</p>
+                          {msgTagStyle && (
+                            <span
+                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-mono font-semibold uppercase tracking-wider border ${msgTagStyle.bg} ${msgTagStyle.text} ${msgTagStyle.border}`}
+                              title={`This message: ${msg.category.toUpperCase()}`}
+                            >
+                              {msg.category.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <span className="text-[10px] text-slate-400 dark:text-white/60">
@@ -520,6 +622,19 @@ const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSave
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
                   Save Changes
                 </button>
+
+                {/* Delete lives here rather than on the board card, so it is only
+                    shown for the thread the user has actually opened. Confirmation
+                    is handled by the parent's ConfirmDeleteModal. */}
+                {thread && onDeleteThread && (
+                  <button
+                    onClick={() => onDeleteThread(thread)}
+                    className="w-full py-2 px-4 text-danger bg-danger/10 font-semibold rounded-lg text-sm hover:bg-danger/20 transition-all duration-200 flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={14} />
+                    Delete Thread
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -643,12 +758,33 @@ const Deals = () => {
   const [pullStatus, setPullStatus] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [conversationDialog, setConversationDialog] = useState({ deal: null, thread: null });
+  // Bulk-delete state. `selectionMode` turns the cards' tag badges into checkboxes;
+  // `selectedThreadIds` holds the ticked threads.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedThreadIds, setSelectedThreadIds] = useState([]);
+  // Pending deletion awaiting confirmation: { ids, count, isBulk } or null.
+  const [pendingDelete, setPendingDelete] = useState(null);
   const queryClient = useQueryClient();
 
+  // Part 1 of the payload split: on page load this returns every thread's metadata
+  // (subject, stage, category, counts, orders) with NO message bodies.
   const { data: threads = [], isLoading: threadsLoading } = useQuery({
     queryKey: ['emailThreads'],
     queryFn: () => dealService.getEmailThreads(),
     refetchOnMount: 'always',
+  });
+
+  // Part 2 of the payload split: the message bodies for a single thread are only
+  // requested once the user opens that thread's "View Deal" dialog. `enabled` keeps
+  // the request from firing until a thread is actually selected.
+  const selectedThreadId = conversationDialog.thread?.id ?? null;
+  const { data: threadDetail, isLoading: messagesLoading } = useQuery({
+    queryKey: ['emailThreadDetail', selectedThreadId],
+    queryFn: () => dealService.getEmailThread(selectedThreadId),
+    enabled: selectedThreadId != null,
+    // Reuse the cached detail when reopening the same thread, but refetch in the
+    // background so a thread that changed server-side still refreshes.
+    staleTime: 30_000,
   });
 
   const pullMutation = useMutation({
@@ -669,6 +805,9 @@ const Deals = () => {
           if (statusData.status === 'SUCCESS') {
             setPullStatus(null);
             queryClient.invalidateQueries(['emailThreads']);
+            // New messages were just ingested, so refresh any open thread detail
+            // too — it is cached under its own query key and would otherwise go stale.
+            queryClient.invalidateQueries({ queryKey: ['emailThreadDetail'] });
             setPullModalOpen(false);
             const result = statusData.result || {};
             if (result.success === false && result.error) {
@@ -759,8 +898,37 @@ const Deals = () => {
     },
   });
 
+  // Both delete flows share one mutation so the confirm modal, cache refresh and
+  // selection reset behave identically for single and bulk deletes.
+  const deleteThreadsMutation = useMutation({
+    mutationFn: ({ ids, isBulk }) =>
+      isBulk ? dealService.bulkDeleteEmailThreads(ids) : dealService.deleteEmailThread(ids[0]),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries(['emailThreads']);
+      // A thread may be open in the dialog, so drop its cached detail too.
+      queryClient.invalidateQueries({ queryKey: ['emailThreadDetail'] });
+      setSelectedThreadIds([]);
+      setSelectionMode(false);
+      setPendingDelete(null);
+      // If the thread the user was viewing is one of the deleted ones, close the
+      // dialog instead of leaving it open on a thread that no longer exists.
+      setConversationDialog((prev) =>
+        prev.thread && variables.ids.includes(prev.thread.id)
+          ? { deal: null, thread: null }
+          : prev
+      );
+      toast.success(data?.message || `Thread${variables.isBulk ? 's' : ''} deleted successfully`);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.error || 'Failed to delete thread');
+      setPendingDelete(null);
+    },
+  });
+
   const handleDragEnd = (result) => {
     if (!result.destination) return;
+    // Ignore drags that happened while selecting for bulk delete.
+    if (selectionMode) return;
     const { draggableId, destination } = result;
     const newStage = destination.droppableId;
 
@@ -794,6 +962,58 @@ const Deals = () => {
     createDealMutation.mutate(data);
   };
 
+  // --- Bulk delete helpers ---
+  // Toggling the header Delete button enters/leaves selection mode and always
+  // clears the current selection, so a second visit starts fresh.
+  const toggleSelectionMode = () => {
+    setSelectionMode((prev) => {
+      if (prev) setSelectedThreadIds([]);
+      return !prev;
+    });
+  };
+
+  const toggleThreadSelect = (threadId) => {
+    setSelectedThreadIds((prev) =>
+      prev.includes(threadId) ? prev.filter((id) => id !== threadId) : [...prev, threadId]
+    );
+  };
+
+  const selectAllThreads = () => {
+    setSelectedThreadIds((prev) =>
+      prev.length === threads.length ? [] : threads.map((t) => t.id)
+    );
+  };
+
+  const leaveSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedThreadIds([]);
+  };
+
+  // Single-thread delete: ask for confirmation, then delete just that thread.
+  const requestDeleteThread = (thread) => {
+    setPendingDelete({ ids: [thread.id], count: 1, isBulk: false });
+  };
+
+  // Bulk delete: ask for confirmation with the number of ticked threads.
+  const requestBulkDelete = () => {
+    if (selectedThreadIds.length === 0) return;
+    setPendingDelete({ ids: selectedThreadIds, count: selectedThreadIds.length, isBulk: true });
+  };
+
+  const confirmDelete = () => {
+    if (pendingDelete) {
+      deleteThreadsMutation.mutate({ ids: pendingDelete.ids, isBulk: pendingDelete.isBulk });
+    }
+  };
+
+  // Drop selection when leaving the page so it never leaks into a later visit.
+  useEffect(() => {
+    return () => {
+      setSelectionMode(false);
+      setSelectedThreadIds([]);
+    };
+  }, []);
+
   if (threadsLoading) {
     return (
       <div className="flex flex-col justify-center items-center h-[calc(100vh-100px)] gap-3">
@@ -811,16 +1031,30 @@ const Deals = () => {
         subtitle="Track RFQs, quotations, and purchase orders"
         actions={
           <>
+            {/* Delete button. Clicking it puts the board into selection mode, which
+                swaps each card's tag badge for a checkbox. Clicking again exits. */}
+            <button
+              onClick={toggleSelectionMode}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                selectionMode
+                  ? 'bg-danger text-white shadow-gold'
+                  : 'border border-border-light dark:border-white/20 text-slate-700 dark:text-white/80 hover:border-danger hover:text-danger'
+              }`}
+            >
+              {selectionMode ? <X size={18} /> : <Trash2 size={18} />}
+              {selectionMode ? 'Cancel' : 'Delete'}
+            </button>
             <button
               onClick={() => setCreateModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gold text-navy rounded-lg text-sm font-semibold hover:bg-gold-dark hover:shadow-gold active:scale-[0.98] transition-all duration-200"
+              disabled={selectionMode}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gold text-navy rounded-lg text-sm font-semibold hover:bg-gold-dark hover:shadow-gold active:scale-[0.98] transition-all duration-200 disabled:opacity-50"
             >
               <Plus size={18} />
               Create Deal
             </button>
             <button
               onClick={() => setPullModalOpen(true)}
-              disabled={!!pullStatus}
+              disabled={!!pullStatus || selectionMode}
               className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border-light dark:border-white/20 text-slate-700 dark:text-white/80 hover:border-gold hover:text-gold text-sm font-semibold transition-all duration-200 disabled:opacity-50"
             >
               <Download size={18} />
@@ -835,6 +1069,35 @@ const Deals = () => {
           </>
         }
       />
+
+      {/* Selection bar: only shown in selection mode, and the bulk delete button
+          only enables once at least one thread is ticked. */}
+      {selectionMode && (
+        <div className="w-full max-w-full mb-4 flex items-center gap-3 px-4 py-3 bg-gold/10 border border-gold/30 rounded-lg">
+          <span className="text-sm text-slate-700 dark:text-white font-medium">
+            {selectedThreadIds.length} of {threads.length} selected
+          </span>
+          <button
+            onClick={selectAllThreads}
+            className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-white/80 bg-white dark:bg-navy border border-border-light dark:border-white/20 rounded hover:border-gold transition-all"
+          >
+            {selectedThreadIds.length === threads.length && threads.length > 0 ? 'Clear all' : 'Select all'}
+          </button>
+          <button
+            onClick={requestBulkDelete}
+            disabled={selectedThreadIds.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-danger bg-danger/10 rounded hover:bg-danger/20 transition-all disabled:opacity-40 disabled:hover:bg-danger/10"
+          >
+            <Trash2 size={14} /> Delete selected
+          </button>
+          <button
+            onClick={leaveSelectionMode}
+            className="ml-auto px-3 py-1.5 text-xs font-medium text-slate-400 dark:text-white/60 hover:text-slate-700 dark:hover:text-white transition-all"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       <div className="w-full max-w-full overflow-x-auto">
         <DragDropContext onDragEnd={handleDragEnd}>
@@ -871,6 +1134,9 @@ const Deals = () => {
                             thread={thread}
                             index={index}
                             onViewDeal={openThreadDialog}
+                            selectionMode={selectionMode}
+                            selected={selectedThreadIds.includes(thread.id)}
+                            onToggleSelect={toggleThreadSelect}
                           />
                         ))}
                         {provided.placeholder}
@@ -904,15 +1170,28 @@ const Deals = () => {
         onCreateDeal={handleCreateDeal}
       />
 
+      <ConfirmDeleteModal
+        isOpen={!!pendingDelete}
+        count={pendingDelete?.count || 0}
+        isBulk={!!pendingDelete?.isBulk}
+        deleting={deleteThreadsMutation.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
+
       {(!!conversationDialog.deal || !!conversationDialog.thread) && (
         <div className="absolute inset-0 z-10 bg-white dark:bg-navy animate-fadeIn">
           <ConversationDialog
-            thread={conversationDialog.thread}
+            // Prefer the detail response (it carries `messages`); fall back to the
+            // list thread so the header and deal form render before it arrives.
+            thread={threadDetail || conversationDialog.thread}
             deal={conversationDialog.deal}
             isOpen={true}
+            messagesLoading={messagesLoading}
             onClose={() => setConversationDialog({ deal: null, thread: null })}
             onSaveDeal={handleSaveDeal}
             onSaveThread={handleSaveThread}
+            onDeleteThread={requestDeleteThread}
           />
         </div>
       )}
