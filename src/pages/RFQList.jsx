@@ -7,6 +7,7 @@ import { Search, Edit3, Trash2, Save, X, Loader2, FileSearch } from 'lucide-reac
 import toast from 'react-hot-toast';
 import Pagination from '../components/Pagination';
 import PageHeader from '../components/PageHeader';
+import CategoryTag from '../components/CategoryTag';
 import DateInput from '../components/DateInput';
 
 const ALLOWED_UNITS = ['pc', 'pcs', 'kg', 'ltr'];
@@ -347,6 +348,7 @@ const RFQList = () => {
                   />
                 </th>
                 <th scope="col" className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">RFQ Serial</th>
+                <th scope="col" className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Tag</th>
                 <th scope="col" className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Client Partner</th>
                 <th scope="col" className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Date</th>
                 <th scope="col" className="px-5 py-3.5 text-right text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Actions</th>
@@ -355,7 +357,7 @@ const RFQList = () => {
             <tbody>
               {rfqs.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-5 py-12 text-center">
+                  <td colSpan="6" className="px-5 py-12 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <FileSearch size={32} className="text-slate-300 dark:text-white/30" />
                       <p className="text-sm font-mono text-slate-400 dark:text-white/60">No records match your filter criteria</p>
@@ -393,11 +395,14 @@ const RFQList = () => {
                       </Link>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap">
+                      <CategoryTag category={rfq.thread_category} />
+                    </td>
+                    <td className="px-5 py-3.5 whitespace-nowrap">
                       <span className="text-sm font-medium text-slate-700 dark:text-white">{rfq.company_name}</span>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-sm font-mono text-slate-400 dark:text-white/60">
-                      {rfq.email_received_at
-                        ? new Date(rfq.email_received_at).toLocaleDateString('en-GB')
+                      {rfq.created_at
+                        ? new Date(rfq.created_at).toLocaleDateString('en-GB')
                         : '-'}
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-right">

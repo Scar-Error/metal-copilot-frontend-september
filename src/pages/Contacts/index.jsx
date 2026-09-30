@@ -32,6 +32,18 @@ const tabs = [
   { key: 'client', label: 'Clients', icon: UserCircle },
 ];
 
+// A rejected field comes back as {email: ["A contact with this email already
+// exists."]}; a failed action as {error}. Show whichever message we got.
+const apiErrorMessage = (err, fallback) => {
+  const data = err?.response?.data;
+  if (!data) return fallback;
+  if (data.error) return data.error;
+  const [first] = Object.values(data);
+  if (Array.isArray(first) && first.length) return first[0];
+  if (typeof first === 'string') return first;
+  return fallback;
+};
+
 const InlineEdit = ({ value, onSave, onCancel }) => {
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef(null);
@@ -208,6 +220,9 @@ const Contacts = () => {
       setDrawerOpen(false);
       toast.success('Contact created');
     },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, 'Failed to create contact'));
+    },
   });
 
   const updateMutation = useMutation({
@@ -216,6 +231,9 @@ const Contacts = () => {
       queryClient.invalidateQueries(['contacts']);
       toast.success('Contact updated');
     },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, 'Failed to update contact'));
+    },
   });
 
   const deleteMutation = useMutation({
@@ -223,6 +241,9 @@ const Contacts = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(['contacts']);
       toast.success('Contact deleted');
+    },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, 'Failed to delete contact'));
     },
   });
 
@@ -432,8 +453,14 @@ const Contacts = () => {
                             className="cursor-pointer"
                             onDoubleClick={() => setEditingCell({ id: contact.id, field: col.key })}
                           >
-                            <span className="text-sm text-slate-700 dark:text-white">
-                              {contact[col.key] || '-'}
+                            <span
+                              className={`text-sm ${
+                                contact[col.key]
+                                  ? 'text-slate-700 dark:text-white'
+                                  : 'text-slate-400 dark:text-white/40 italic'
+                              }`}
+                            >
+                              {contact[col.key] || (col.key === 'phone' ? 'no PH Found' : '-')}
                             </span>
                           </div>
                         )}

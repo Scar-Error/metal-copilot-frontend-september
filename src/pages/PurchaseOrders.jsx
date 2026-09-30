@@ -5,6 +5,7 @@ import { Search, Eye, RefreshCw, Loader2, Trash2, ShoppingCart } from 'lucide-re
 import toast from 'react-hot-toast';
 import Pagination from '../components/Pagination';
 import PageHeader from '../components/PageHeader';
+import CategoryTag from '../components/CategoryTag';
 
 const PurchaseOrders = () => {
   const navigate = useNavigate();
@@ -164,7 +165,7 @@ const PurchaseOrders = () => {
                   <th className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">RFQ Number</th>
                   <th className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Company</th>
                   <th className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">PO Number</th>
-                  <th className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Stage</th>
+                  <th className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Tag</th>
                   <th className="px-5 py-3.5 text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Date</th>
                   <th className="px-5 py-3.5 text-right text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/60 font-mono">Actions</th>
                 </tr>
@@ -190,13 +191,14 @@ const PurchaseOrders = () => {
                       <span className="text-sm font-medium text-slate-700 dark:text-white">{order.company_name || '-'}</span>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-sm font-mono text-slate-700 dark:text-white">{order.po_number || '-'}</td>
+                    {/* Which tag the AI gave the thread this order came from. This
+                        page only lists PO-tagged threads, so anything shown here
+                        carries the PO tag. */}
                     <td className="px-5 py-3.5 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] font-mono font-semibold uppercase tracking-wider border bg-gold/10 text-gold border-gold/20 capitalize">
-                        {order.stage}
-                      </span>
+                      <CategoryTag category={order.thread_category} />
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-sm font-mono text-slate-400 dark:text-white/60">
-                      {order.email_received_at ? new Date(order.email_received_at).toLocaleDateString('en-GB') : '-'}
+                      {order.created_at ? new Date(order.created_at).toLocaleDateString('en-GB') : '-'}
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-3">

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
   KanbanSquare,
   X,
+  ArrowLeft,
   FileText,
   Loader2,
   Mail,
@@ -472,7 +474,20 @@ const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSave
 
   return (
     <div className="flex flex-col bg-white dark:bg-navy h-full">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border-light dark:border-white/10 shrink-0">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border-light dark:border-white/10 shrink-0">
+        {/* Back arrow on the left, where the eye already is when reading a
+            conversation. It closes the thread view and puts the board back, the
+            same thing the "Pipeline" link in the sidebar does. There is no X on
+            the right: this is a step back through the pipeline, not a dismissible
+            overlay. */}
+        <button
+          onClick={onClose}
+          title="Back to pipeline"
+          aria-label="Back to pipeline"
+          className="shrink-0 -ml-1 p-1.5 rounded-lg text-slate-400 dark:text-white/60 hover:text-gold hover:bg-gold/10 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <ArrowLeft size={20} />
+        </button>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-slate-700 dark:text-white truncate">
             {thread ? (thread.subject || '(no subject)') : (order?.rfq_number || 'New Order')}
@@ -498,9 +513,6 @@ const ConversationDialog = ({ thread, deal: initialDeal, isOpen, onClose, onSave
             )}
           </p>
         </div>
-        <button onClick={onClose} className="text-slate-400 dark:text-white/60 hover:text-slate-700 dark:hover:text-white ml-4 shrink-0">
-          <X size={20} />
-        </button>
       </div>
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -757,7 +769,18 @@ const Deals = () => {
   const [pullModalOpen, setPullModalOpen] = useState(false);
   const [pullStatus, setPullStatus] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [conversationDialog, setConversationDialog] = useState({ deal: null, thread: null });
+  // Which thread is open lives in the URL (`/deals?id=<threadId>`) rather than in
+  // component state, so the address bar always names the deal the user is inside
+  // and the thread can be linked to, reloaded or bookmarked. It also means the
+  // open thread is derived state: clicking "Pipeline" in the left sidebar goes
+  // to `/deals` with no `id`, the URL changes, and the thread view closes itself
+  // — no state has to be reset by hand, so the sidebar always wins over an
+  // overlay that is still on screen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openThreadIdParam = searchParams.get('id');
+  const openThreadId = openThreadIdParam != null && /^\d+$/.test(openThreadIdParam)
+    ? Number(openThreadIdParam)
+    : null;
   // Bulk-delete state. `selectionMode` turns the cards' tag badges into checkboxes;
   // `selectedThreadIds` holds the ticked threads.
   const [selectionMode, setSelectionMode] = useState(false);
@@ -774,14 +797,20 @@ const Deals = () => {
     refetchOnMount: 'always',
   });
 
+  // The open thread is the one the URL points at. Resolving it from the board
+  // payload (rather than keeping a second copy in state) means a link to a thread
+  // id opens as soon as the board has loaded, and a stale id simply opens nothing
+  // instead of firing a request that would 404.
+  const openThread = threads.find((t) => t.id === openThreadId) || null;
+  const openOrder = openThread?.orders?.[0] || null;
+
   // Part 2 of the payload split: the message bodies for a single thread are only
-  // requested once the user opens that thread's "View Deal" dialog. `enabled` keeps
+  // requested once the user opens that thread's "View Deal" view. `enabled` keeps
   // the request from firing until a thread is actually selected.
-  const selectedThreadId = conversationDialog.thread?.id ?? null;
   const { data: threadDetail, isLoading: messagesLoading } = useQuery({
-    queryKey: ['emailThreadDetail', selectedThreadId],
-    queryFn: () => dealService.getEmailThread(selectedThreadId),
-    enabled: selectedThreadId != null,
+    queryKey: ['emailThreadDetail', openThreadId],
+    queryFn: () => dealService.getEmailThread(openThreadId),
+    enabled: openThreadId != null && openThread != null,
     // Reuse the cached detail when reopening the same thread, but refetch in the
     // background so a thread that changed server-side still refreshes.
     staleTime: 30_000,
@@ -894,7 +923,17 @@ const Deals = () => {
       queryClient.setQueryData(['emailThreads'], (old) =>
         (old || []).map((t) => (t.id === data.id ? { ...t, category: data.category, stage: 'categorized' } : t))
       );
+      // ai_errors means the AI never answered and every tag came back as the
+      // `other` fallback. Saying "Categorized as OTHER" there would be a lie
+      // about what happened, so the reason is shown instead.
+      if (data.ai_errors?.length) {
+        toast.error(`AI analysis failed - tagged as ${String(data.category).toUpperCase()} by fallback. ${data.ai_errors[0]}`);
+        return;
+      }
       toast.success(`Categorized as ${data.category.toUpperCase()}`);
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.error || 'Failed to run AI analysis');
     },
   });
 
@@ -905,21 +944,20 @@ const Deals = () => {
       isBulk ? dealService.bulkDeleteEmailThreads(ids) : dealService.deleteEmailThread(ids[0]),
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries(['emailThreads']);
-      // A thread may be open in the dialog, so drop its cached detail too.
+      // A thread may be open in the view, so drop its cached detail too.
       queryClient.invalidateQueries({ queryKey: ['emailThreadDetail'] });
       setSelectedThreadIds([]);
       setSelectionMode(false);
       setPendingDelete(null);
-      // If the thread the user was viewing is one of the deleted ones, close the
-      // dialog instead of leaving it open on a thread that no longer exists.
-      setConversationDialog((prev) =>
-        prev.thread && variables.ids.includes(prev.thread.id)
-          ? { deal: null, thread: null }
-          : prev
-      );
+      // If the thread the user was viewing is one of the deleted ones, close it
+      // instead of leaving it open on a thread that no longer exists.
+      if (openThreadId != null && variables.ids.includes(openThreadId)) {
+        closeThreadDialog();
+      }
       toast.success(data?.message || `Thread${variables.isBulk ? 's' : ''} deleted successfully`);
     },
     onError: (err) => {
+
       toast.error(err.response?.data?.error || 'Failed to delete thread');
       setPendingDelete(null);
     },
@@ -950,8 +988,17 @@ const Deals = () => {
   };
 
   const openThreadDialog = (thread) => {
-    const order = thread.orders?.[0] || null;
-    setConversationDialog({ deal: order, thread });
+    // Push, not replace: the browser Back button then returns to the board the
+    // same way the in-app back arrow does.
+    setSearchParams({ id: String(thread.id) });
+  };
+
+  // Closing strips the `id` from the URL, which is what actually closes the
+  // thread view — there is no separate piece of state to fall out of sync.
+  // `replace` keeps the board from being buried under one history entry per
+  // thread the user glanced at.
+  const closeThreadDialog = () => {
+    setSearchParams({}, { replace: true });
   };
 
   const handlePullEmails = (start_time, end_time) => {
@@ -1179,16 +1226,17 @@ const Deals = () => {
         onCancel={() => setPendingDelete(null)}
       />
 
-      {(!!conversationDialog.deal || !!conversationDialog.thread) && (
+      {openThread && (
         <div className="absolute inset-0 z-10 bg-white dark:bg-navy animate-fadeIn">
           <ConversationDialog
             // Prefer the detail response (it carries `messages`); fall back to the
-            // list thread so the header and deal form render before it arrives.
-            thread={threadDetail || conversationDialog.thread}
-            deal={conversationDialog.deal}
+            // board's copy of the thread so the header and deal form render before
+            // it arrives.
+            thread={threadDetail || openThread}
+            deal={openOrder}
             isOpen={true}
             messagesLoading={messagesLoading}
-            onClose={() => setConversationDialog({ deal: null, thread: null })}
+            onClose={closeThreadDialog}
             onSaveDeal={handleSaveDeal}
             onSaveThread={handleSaveThread}
             onDeleteThread={requestDeleteThread}
