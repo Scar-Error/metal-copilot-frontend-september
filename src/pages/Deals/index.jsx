@@ -769,6 +769,7 @@ const Deals = () => {
   const [pullModalOpen, setPullModalOpen] = useState(false);
   const [pullStatus, setPullStatus] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   // Which thread is open lives in the URL (`/deals?id=<threadId>`) rather than in
   // component state, so the address bar always names the deal the user is inside
   // and the thread can be linked to, reloaded or bookmarked. It also means the
@@ -1119,7 +1120,7 @@ const Deals = () => {
 
       {/* Selection bar: only shown in selection mode, and the bulk delete button
           only enables once at least one thread is ticked. */}
-      {selectionMode && (
+       {selectionMode && (
         <div className="w-full max-w-full mb-4 flex items-center gap-3 px-4 py-3 bg-gold/10 border border-gold/30 rounded-lg">
           <span className="text-sm text-slate-700 dark:text-white font-medium">
             {selectedThreadIds.length} of {threads.length} selected
@@ -1146,11 +1147,41 @@ const Deals = () => {
         </div>
       )}
 
+      <div className="w-full max-w-full mb-4 flex items-center">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search pipeline..."
+          className="w-full max-w-sm px-3 py-2 text-sm bg-white dark:bg-navy border border-border-light dark:border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-gold focus:border-gold text-slate-700 dark:text-white placeholder-slate-400 dark:placeholder-white/40"
+        />
+        {searchTerm && (
+          <button
+            onClick={() => setSearchTerm('')}
+            className="ml-2 px-2 py-2 text-xs text-slate-400 hover:text-slate-700 dark:text-white/40 dark:hover:text-white transition-all border border-border-light dark:border-white/20 rounded-md hover:border-gold"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       <div className="w-full max-w-full overflow-x-auto">
         <DragDropContext onDragEnd={handleDragEnd}>
           <div className="flex flex-nowrap gap-4 pb-4" style={{ width: '1800px' }}>
             {stages.map((stage) => {
-              const stageThreads = threads.filter((t) => t.stage === stage.key);
+              const stageThreads = threads.filter((t) => {
+                if (t.stage !== stage.key) return false;
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return true;
+                const haystacks = [
+                  t.subject,
+                  t.conversation_id,
+                  t.last_sender_name,
+                  t.last_sender_email,
+                  t.company_name,
+                ].filter(Boolean).map((s) => String(s).toLowerCase());
+                return haystacks.some((s) => s.includes(term));
+              });
               const totalItems = stageThreads.length;
 
               return (

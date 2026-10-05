@@ -308,12 +308,9 @@ const Contacts = () => {
   };
 
   const columns = [
-    { key: 'company_name', label: 'Company', width: 'w-1/5' },
-    { key: 'contact_person', label: 'Contact Person', width: 'w-1/6' },
-    { key: 'email', label: 'Email', width: 'w-1/5' },
-    { key: 'phone', label: 'Phone', width: 'w-1/6' },
-    { key: 'type', label: 'Type', width: 'w-1/12' },
-    { key: 'tags', label: 'Tags', width: 'w-1/6' },
+    { key: 'contact_person', label: 'Contact Person', width: 'w-1/3' },
+    { key: 'email', label: 'Email', width: 'w-1/3' },
+    { key: 'phone', label: 'Phone', width: 'w-1/3' },
   ];
 
   return (
